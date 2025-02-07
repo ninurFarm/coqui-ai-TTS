@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pysbd
@@ -213,11 +213,13 @@ class Synthesizer(nn.Module):
             self._set_speaker_encoder_paths_from_tts_config()
 
         self.tts_model.load_checkpoint(self.tts_config, tts_checkpoint, eval=True)
-        if use_cuda:
-            self.tts_model.cuda()
+        self.device = torch.device("cuda" if use_cuda else "cpu")
+        self.tts_model.to(self.device)
 
         if self.encoder_checkpoint and hasattr(self.tts_model, "speaker_manager"):
             self.tts_model.speaker_manager.init_encoder(self.encoder_checkpoint, self.encoder_config, use_cuda)
+            if hasattr(self.tts_model.speaker_manager, "encoder"):
+                self.tts_model.speaker_manager.encoder.to(self.device)
 
     def _set_speaker_encoder_paths_from_tts_config(self):
         """Set the encoder paths from the tts model config for models with speaker encoders."""
@@ -245,8 +247,8 @@ class Synthesizer(nn.Module):
         self.vocoder_ap = AudioProcessor(**self.vocoder_config.audio)
         self.vocoder_model = setup_vocoder_model(self.vocoder_config)
         self.vocoder_model.load_checkpoint(self.vocoder_config, model_file, eval=True)
-        if use_cuda:
-            self.vocoder_model.cuda()
+        self.device: Literal['cuda','cpu'] = "cuda" if torch.cuda.is_available() else "cpu"
+        self.vocoder_model.to(self.device)
 
     def split_into_sentences(self, text) -> list[str]:
         """Split give text into sentences.

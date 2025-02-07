@@ -2,6 +2,7 @@
 
 import logging
 import tempfile
+from typing import Any
 import warnings
 from pathlib import Path
 
@@ -290,7 +291,7 @@ class TTS(nn.Module):
         speed: float | None = None,
         split_sentences: bool = True,
         **kwargs,
-    ):
+    ) -> list[int]:
         """Convert text to speech.
 
         Args:
@@ -319,7 +320,7 @@ class TTS(nn.Module):
         self._check_arguments(
             speaker=speaker, language=language, speaker_wav=speaker_wav, emotion=emotion, speed=speed, **kwargs
         )
-        wav = self.synthesizer.tts(
+        wav: list[int] = self.synthesizer.tts(
             text=text,
             speaker_name=speaker,
             language_name=language,
@@ -337,10 +338,10 @@ class TTS(nn.Module):
         speaker_wav: str | None = None,
         emotion: str | None = None,
         speed: float = 1.0,
-        pipe_out=None,
+        pipe_out:Any|None=None,
         file_path: str = "output.wav",
         split_sentences: bool = True,
-        **kwargs,
+        **kwargs:Any,
     ) -> str:
         """Convert text to speech.
 

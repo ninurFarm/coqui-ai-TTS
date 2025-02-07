@@ -88,6 +88,7 @@ dependencies = [
     # XTTS
     "num2words>=0.5.14",
     "spacy[ja]>=3.2,<3.8",
+    "jupyter>=1.1.1",
 ]
 
 [project.optional-dependencies]

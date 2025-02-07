@@ -1,3 +1,4 @@
+from typing import Any
 import numpy as np
 import torch
 from torch import nn
@@ -22,12 +23,12 @@ def compute_style_mel(style_wav, ap, cuda=False, device="cpu"):
 def run_model_torch(
     model: nn.Module,
     inputs: torch.Tensor,
-    speaker_id: int = None,
-    style_mel: torch.Tensor = None,
-    style_text: str = None,
-    d_vector: torch.Tensor = None,
-    language_id: torch.Tensor = None,
-) -> dict:
+    speaker_id: int | None = None,
+    style_mel: torch.Tensor | None = None,
+    style_text: str | None = None,
+    d_vector: torch.Tensor | None = None,
+    language_id: torch.Tensor | None = None,
+) -> dict[Any, Any]:
     """Run a torch model for inference. It does not support batch inference.
 
     Args:
@@ -35,16 +36,31 @@ def run_model_torch(
         inputs (torch.Tensor): Input tensor with character ids.
         speaker_id (int, optional): Input speaker ids for multi-speaker models. Defaults to None.
         style_mel (torch.Tensor, optional): Spectrograms used for voice styling . Defaults to None.
-        d_vector (torch.Tensor, optional): d-vector for multi-speaker models    . Defaults to None.
+        d_vector (torch.Tensor, optional): d-vector for multi-speaker models. Defaults to None.
+        language_id (torch.Tensor, optional): Language ID tensor for multi-lingual models. Defaults to None.
 
     Returns:
         Dict: model outputs.
     """
-    input_lengths = torch.tensor(inputs.shape[1:2]).to(inputs.device)
+    device = next(model.parameters()).device
+    input_lengths = torch.tensor(inputs.shape[1:2], device=device)
+    
+    # Ensure all inputs are on the same device
+    inputs = inputs.to(device)
+    if speaker_id is not None:
+        speaker_id = torch.tensor(speaker_id, device=device)
+    if style_mel is not None and not isinstance(style_mel, dict):
+        style_mel = style_mel.to(device)
+    if d_vector is not None:
+        d_vector = d_vector.to(device)
+    if language_id is not None:
+        language_id = language_id.to(device)
+
     if hasattr(model, "module"):
         _func = model.module.inference
     else:
         _func = model.inference
+
     outputs = _func(
         inputs,
         aux_input={
@@ -121,45 +137,30 @@ def synthesis(
     the vocoder model.
 
     Args:
-        model (TTS.tts.models):
-            The TTS model to synthesize audio with.
+        model (TTS.tts.models): model to synthesize.
+        text (str): text to synthesize.
+        CONFIG (Coqpit): model configuration.
+        use_cuda (bool): enable/disable CUDA.
+        speaker_id (str): speaker id for multi-speaker models.
+        style_wav (Union[str, List[str]]): style waveform for GST.
+        style_text (str): transcription of style_wav for Capacitron.
+        enable_eos_bos (bool): enable/disable adding EOS/BOS to the text.
+        do_trim_silence (bool): enable/disable silence trimming at start and end of the sentence.
+        d_vector (tensor): d-vector for multi-speaker models.
+        language_id (str): language id for multilingual models.
 
-        text (str):
-            The input text to convert to speech.
-
-        CONFIG (Coqpit):
-            Model configuration.
-
-        use_cuda (bool):
-            Enable/disable CUDA.
-
-        speaker_id (int):
-            Speaker ID passed to the speaker embedding layer in multi-speaker model. Defaults to None.
-
-        style_wav (str | Dict[str, float]):
-            Path or tensor to/of a waveform used for computing the style embedding based on GST or Capacitron.
-            Defaults to None, meaning that Capacitron models will sample from the prior distribution to
-            generate random but realistic prosody.
-
-        style_text (str):
-            Transcription of style_wav for Capacitron models. Defaults to None.
-
-        enable_eos_bos_chars (bool):
-            enable special chars for end of sentence and start of sentence. Defaults to False.
-
-        do_trim_silence (bool):
-            trim silence after synthesis. Defaults to False.
-
-        d_vector (torch.Tensor):
-            d-vector for multi-speaker models in share :math:`[1, D]`. Defaults to None.
-
-        language_id (int):
-            Language ID passed to the language embedding layer in multi-langual model. Defaults to None.
+    Returns:
+        Dict: output dictionary with following keys:
+            - "wav": synthesized waveform (if vocoder enabled)
+            - "alignments": attention alignments
+            - "text_inputs": text inputs to the model
+            - "outputs": model outputs (e.g. mel-spectrogram)
     """
-    # device
+    # Get device
     device = next(model.parameters()).device
-    if use_cuda:
-        device = "cuda"
+    if use_cuda and device.type != "cuda":
+        device = torch.device("cuda")
+        model = model.to(device)
 
     # GST or Capacitron processing
     # TODO: need to handle the case of setting both gst and capacitron to true somewhere
@@ -185,7 +186,8 @@ def synthesis(
         model.tokenizer.text_to_ids(text, language=language_name),
         dtype=np.int32,
     )
-    # pass tensors to backend
+
+    # pass tensors to device
     if speaker_id is not None:
         speaker_id = id_to_torch(speaker_id, device=device)
 
@@ -208,6 +210,7 @@ def synthesis(
 
     text_inputs = numpy_to_torch(text_inputs, torch.long, device=device)
     text_inputs = text_inputs.unsqueeze(0)
+
     # synthesize voice
     outputs = run_model_torch(
         model,
@@ -218,12 +221,15 @@ def synthesis(
         d_vector=d_vector,
         language_id=language_id,
     )
+
+    # Move outputs to CPU for numpy conversion
     model_outputs = outputs["model_outputs"]
-    model_outputs = model_outputs[0].data.cpu().numpy()
+    if torch.is_tensor(model_outputs):
+        model_outputs = model_outputs[0].detach().cpu()
+    model_outputs = model_outputs.numpy()
     alignments = outputs["alignments"]
 
     # convert outputs to numpy
-    # plot results
     wav = None
     model_outputs = model_outputs.squeeze()
     if model_outputs.ndim == 2:  # [T, C_spec]
@@ -234,6 +240,7 @@ def synthesis(
                 wav = trim_silence(wav, model.ap)
     else:  # [T,]
         wav = model_outputs
+
     return_dict = {
         "wav": wav,
         "alignments": alignments,

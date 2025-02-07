@@ -357,9 +357,10 @@ class ForwardTTS(BaseTTS):
         """
         if hasattr(self, "emb_g"):
             g = g.type(torch.LongTensor)
+            g = g.to(self.emb_g.weight.device)
             g = self.emb_g(g)  # [B, C, 1]
         if g is not None:
-            g = g.unsqueeze(-1)
+            g = g.unsqueeze(-1).to(self.emb_g.weight.device)
         # [B, T, C]
         x_emb = self.emb(x)
         # encoder pass

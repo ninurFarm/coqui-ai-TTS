@@ -172,3 +172,4 @@ depot/*
 coqui_recipes/*
 local_scripts/*
 coqui_demos/*
+notebooks/indic_tts_out.wav
